@@ -1,40 +1,67 @@
 #!/usr/bin/env python
-import requests, argparse, re, sys
+import argparse
+import re
+import sys
+
+from tornado import httpclient, ioloop
+
+def end_loop():
+    ioloop.IOLoop.instance().stop()
+
 
 def get_max_width(table, i):
     return max([len(row[i]) for row in table])
 
-def print_table(out, table):
+def print_table(table):
+    if table is None:
+        print "Info for route " + args.route[0] + " is unavailable.";
+        end_loop()
+        return
+
     col_paddings = []
     for i in range(len(table[0])):
         col_paddings.append(get_max_width(table, i))
    
-    print >> out, "\n\n", 
-    print >> out, table[0][0].ljust(col_paddings[0] + 1),
+    print "\n\n", 
+    print table[0][0].ljust(col_paddings[0] + 1),
     for i in range(1, len(table[0])):
         col = table[0][i].rjust(col_paddings[i] + 2)
-        print >> out, col,
+        print col,
     
 
-    print >> out, "\n" 
-    print >> out, "-" * (sum(col_paddings) + 3 * len(col_paddings))
+    print "\n" 
+    print "-" * (sum(col_paddings) + 3 * len(col_paddings))
 
     table.pop(0)
     for row in table:
-        print >> out, row[0].ljust(col_paddings[0] + 1),
+        print row[0].ljust(col_paddings[0] + 1),
         for i in range(1, len(row)):
             col = row[i].rjust(col_paddings[i] + 2)
-            print >> out, col,
+            print col,
         
-        print >> out
+        print '\n'
 
-def get_route_data(route):
+    print '\n'
+    end_loop()
+
+def get_route_data(route, callback):
+    # compose callback with parser
+    # wanted to use this, but it is fully evaluated before I want:
+    #cb = lambda x: callback(parse_route_data(x))
+
+    def cb(x):
+        data = parse_route_data(x)
+        callback(data)
+        
+
     # Get the routes
-    r = requests.get("http://mobile.aata.org/rideguide_m.asp?route=" + str(route))
+    http_client = httpclient.AsyncHTTPClient()
+    r = http_client.fetch("http://mobile.aata.org/rideguide_m.asp?route=" + str(route), cb)
 
+def parse_route_data(response):
     # parse them
     try:
-        arr = r.content.split("<hr />")
+        arr = response.body.split("<hr />")
         routes = [['', '', '', '', ''] for x in range(len(arr) - 1) ]
         routes[0] = ["Direction", "Arriving", "Location", "Next Stop", "Time"]
 
@@ -64,6 +91,7 @@ def get_route_data(route):
         return routes
 
     except:
+        #raise
         return None
 
 
@@ -73,14 +101,9 @@ if __name__ == '__main__':
     parser.add_argument('route', nargs=1, help='route you\'re trying to view')
     args = parser.parse_args()
 
-    data = get_route_data(args.route[0].upper())
+    try:
+        get_route_data(args.route[0].upper(), print_table)
+        ioloop.IOLoop.instance().start()
     
-    if not data:
-        print "Info for route " + args.route[0] + " is unavailable.";
+    finally:
         exit()
-
-    # Print the table
-    out = sys.stdout
-    print_table(out, data)
-    print '\n'
-
